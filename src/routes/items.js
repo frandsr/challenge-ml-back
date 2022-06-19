@@ -6,8 +6,69 @@ const router = Router();
 const BASE_API_MELI_URL = "https://api.mercadolibre.com";
 const ITEMS_SEARCH_MELI_URL = "/sites/MLA/search";
 const CATEGORIES_URL = "/categories/";
+const ITEM_URL = "/items/";
+const ITEM_DESCRIPTION_URL = "/description";
+const responseAuthor = {
+    name: "Francisco",
+    lastName: "de Sautu Riestra"
+  };
 
-//Helpers
+//////////// Endpoints ////////////////
+
+router.get("/", async (req, res) => {
+  const query = req.query.q || req.body.q;
+  let data;
+  try {
+    const res = await axios(BASE_API_MELI_URL + ITEMS_SEARCH_MELI_URL, {
+      params: {
+        q: query
+      }
+    });
+    data = res.data;
+  } catch (error) {
+    console.error(
+      "Failed to retrieve items information on MELI api with error: ",
+      error
+    );
+  }
+  
+  try {
+    const formatedJsonResponse = await formatItemsJsonResponse(data);
+    res.status(200).json(formatedJsonResponse);
+    
+  } catch (error) {
+     res.status(error.response.status).json(error.response.data);
+  }
+
+});
+
+router.get("/:id", async (req, res) => {
+  let itemId = req.params.id;
+  let itemData;
+  let itemDescriptionData;
+  try {
+    itemData = await axios.get(BASE_API_MELI_URL + ITEM_URL + itemId);
+    itemDescriptionData = await axios.get(
+      BASE_API_MELI_URL + ITEM_URL + itemId + ITEM_DESCRIPTION_URL
+    );
+  } catch (error) {
+    console.error(
+      "Failed to retrieve item information on MELI api with error: ",
+      error
+    );
+    res.status(error.response.status).json(error.response.data);
+  }
+
+  const formatedJsonResponse = formatItemJsonResponse(
+    itemData,
+    itemDescriptionData
+  );
+  res.status(200).json(formatedJsonResponse);
+});
+
+
+//////////// Helpers ////////////////
+
 const getCategoriesArray = async (slicedResults) => {
   let slicedResultsCategoriesId = slicedResults.map((res) => res.category_id);
   let categories = [];
@@ -23,16 +84,21 @@ const getCategoriesArray = async (slicedResults) => {
   return categories;
 };
 
-const formatItemsJsonResponse = async (axiosData) => {
-  const slicedResults = axiosData.results.slice(0, 4);
-  const author = {
-    name: "Francisco",
-    lastName: "de Sautu Riestra"
-  };
-  let categories;
+const getDecimalsFromPrice = (price ,decimalsQuantity) => {
+  return Number(
+    (Math.abs(price) - Math.floor(price))
+      .toFixed(decimalsQuantity)
+      .substring(decimalsQuantity)
+  );
+}
+
+const formatItemsJsonResponse = async (itemsData) => {
+
+  const slicedResults = itemsData.results.slice(0, 4);
+  let responseCategories;
 
   try {
-    categories = await getCategoriesArray(slicedResults);
+    responseCategories = await getCategoriesArray(slicedResults);
   } catch (error) {
     console.error(
       "Failed to retrieve categoies information on MELI app with error: ",
@@ -41,46 +107,50 @@ const formatItemsJsonResponse = async (axiosData) => {
     throw error;
   }
 
+  const responseItems = slicedResults.map((item) => ({
+    id: item.id,
+    title: item.title,
+    price: {
+      currency: item.currency_id,
+      amount: item.price,
+      decimals: getDecimalsFromPrice(item.price, 2)
+    },
+    picture: item.thumbnail,
+    condition: item.condition,
+    free_shipping: item.shipping.free_shipping,
+    location: item.address.state_name
+  }));
+
   const formatedJsonResponse = {
-    author,
-    categories,
-    items: slicedResults.map((item) => ({
+    author: responseAuthor,
+    categories: responseCategories,
+    items: responseItems
+  };
+  return formatedJsonResponse;
+};
+
+const formatItemJsonResponse = (itemData, itemDescriptionData) => {
+    const item = itemData.data;
+    const itemDescription = itemDescriptionData.data;
+
+  const formatedJsonResponse = {
+    author: responseAuthor,
+    item: {
       id: item.id,
       title: item.title,
       price: {
         currency: item.currency_id,
         amount: item.price,
-        decimals: (item.price % 1).toFixed(2).substring(2)
+        decimals: getDecimalsFromPrice(item.price, 2)
       },
       picture: item.thumbnail,
       condition: item.condition,
       free_shipping: item.shipping.free_shipping,
-      location: item.address.state_name
-    }))
+      sold_quantity: item.sold_quantity,
+      description: itemDescription.plain_text
+    }
   };
   return formatedJsonResponse;
 };
-
-router.get("/", async (req, res) => {
-  const query = req.query.q || req.body.q;
-  let data;
-  try {
-    const res = await axios(BASE_API_MELI_URL + ITEMS_SEARCH_MELI_URL, {
-      params: {
-        q: query
-      }
-    });
-    data = res.data;
-  } catch (error) {
-    console.error(
-      "Failed to retrieve items information on MELI app with error: ",
-      error
-    );
-    res.status(error.response.status).json(error.response.data);
-  }
-
-  const formatedJsonResponse = await formatItemsJsonResponse(data);
-  res.status(200).json(formatedJsonResponse);
-});
 
 module.exports = router;

@@ -9,9 +9,9 @@ const CATEGORIES_URL = "/categories/";
 const ITEM_URL = "/items/";
 const ITEM_DESCRIPTION_URL = "/description";
 const responseAuthor = {
-    name: "Francisco",
-    lastName: "de Sautu Riestra"
-  };
+  name: "Francisco",
+  lastName: "de Sautu Riestra"
+};
 
 //////////// Endpoints ////////////////
 
@@ -31,15 +31,13 @@ router.get("/", async (req, res) => {
       error
     );
   }
-  
+
   try {
     const formatedJsonResponse = await formatItemsJsonResponse(data);
     res.status(200).json(formatedJsonResponse);
-    
   } catch (error) {
-     res.status(error.response.status).json(error.response.data);
+    res.status(error.response.status).json(error.response.data);
   }
-
 });
 
 router.get("/:id", async (req, res) => {
@@ -58,42 +56,46 @@ router.get("/:id", async (req, res) => {
     );
     res.status(error.response.status).json(error.response.data);
   }
-
-  const formatedJsonResponse = formatItemJsonResponse(
-    itemData,
-    itemDescriptionData
-  );
-  res.status(200).json(formatedJsonResponse);
+  try {
+    const formatedJsonResponse = await formatItemJsonResponse(
+      itemData,
+      itemDescriptionData
+    );
+    res.status(200).json(formatedJsonResponse);
+  } catch (error) {
+    res.status(error.response.status).json(error.response.data);
+  }
 });
-
 
 //////////// Helpers ////////////////
 
 const getCategoriesArray = async (slicedResults) => {
   let slicedResultsCategoriesId = slicedResults.map((res) => res.category_id);
   let categories = [];
+  let categoryPath = [];
   for (const cat of slicedResultsCategoriesId) {
     try {
       const res = await axios(BASE_API_MELI_URL + CATEGORIES_URL + cat);
       categoryInfo = res.data;
       categories.push(categoryInfo.name);
+      if (categoryPath.length === 0)
+        categoryPath = categoryInfo.path_from_root.map((cat) => cat.name);
     } catch (error) {
       throw error;
     }
   }
-  return categories;
+  return {categories, categoryPath};
 };
 
-const getDecimalsFromPrice = (price ,decimalsQuantity) => {
+const getDecimalsFromPrice = (price, decimalsQuantity) => {
   return Number(
     (Math.abs(price) - Math.floor(price))
       .toFixed(decimalsQuantity)
       .substring(decimalsQuantity)
   );
-}
+};
 
 const formatItemsJsonResponse = async (itemsData) => {
-
   const slicedResults = itemsData.results.slice(0, 4);
   let responseCategories;
 
@@ -123,15 +125,28 @@ const formatItemsJsonResponse = async (itemsData) => {
 
   const formatedJsonResponse = {
     author: responseAuthor,
-    categories: responseCategories,
+    categories: responseCategories.categories,
+    category_path: responseCategories.categoryPath,
     items: responseItems
   };
   return formatedJsonResponse;
 };
 
-const formatItemJsonResponse = (itemData, itemDescriptionData) => {
-    const item = itemData.data;
-    const itemDescription = itemDescriptionData.data;
+const formatItemJsonResponse = async (itemData, itemDescriptionData) => {
+  const item = itemData.data;
+  const itemDescription = itemDescriptionData.data;
+  const itemCategory = item.category_id;
+  let categoryPath;
+  try {
+    const res = await axios(BASE_API_MELI_URL + CATEGORIES_URL + itemCategory);
+    categoryPath = res.data.path_from_root;
+  } catch (error) {
+    console.error(
+      "Failed to retrieve category information on MELI app with error: ",
+      error
+    );
+    throw error;
+  }
 
   const formatedJsonResponse = {
     author: responseAuthor,
@@ -143,12 +158,13 @@ const formatItemJsonResponse = (itemData, itemDescriptionData) => {
         amount: item.price,
         decimals: getDecimalsFromPrice(item.price, 2)
       },
-      picture: item.thumbnail,
+      picture: item.pictures[0].url,
       condition: item.condition,
       free_shipping: item.shipping.free_shipping,
       sold_quantity: item.sold_quantity,
       description: itemDescription.plain_text
-    }
+    },
+    category_path: categoryPath.map((cat) => cat.name)
   };
   return formatedJsonResponse;
 };
